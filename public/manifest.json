@@ -1,0 +1,14 @@
+{
+  "name": "Padel Evolution",
+  "short_name": "PadelEvo",
+  "description": "Piattaforma SaaS per circoli di padel",
+  "theme_color": "#C8F135",
+  "background_color": "#0B0F0A",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "start_url": "/",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
