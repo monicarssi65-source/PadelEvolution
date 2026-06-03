@@ -140,12 +140,6 @@ textarea.input{resize:vertical}
 
 const LIVELLI=["1.0","1.5","2.0","2.5","3.0","3.5","4.0","4.5","5.0"];
 const LATI=["Indifferente","Destra","Sinistra"];
-const FORMATI=[
-  {id:"elim",icon:"🏆",nome:"Eliminazione Diretta",desc:"Perdi ed esci."},
-  {id:"gironi",icon:"📋",nome:"Gironi + Finale",desc:"Gironi poi knockout."},
-  {id:"rodeo",icon:"🎠",nome:"Formula Rodeo",desc:"Partner a rotazione."},
-  {id:"tappe",icon:"📅",nome:"Campionato a Tappe",desc:"Classifica cumulativa."},
-];
 const CAMPI=[
   {id:"c1",nome:"Campo 1",tipo:"Indoor",superficie:"Vetro"},
   {id:"c2",nome:"Campo 2",tipo:"Indoor",superficie:"Vetro"},
