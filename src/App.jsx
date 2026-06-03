@@ -2987,7 +2987,7 @@ function useSupaTable(table, filter = "", deps = []) {
 // ─────────────────────────────────────────────────────────────
 // SUPER ADMIN PANEL
 // ─────────────────────────────────────────────────────────────
-function SuperAdminPanel({ user, onLogout, notifiche, setNotifiche }) {
+function SuperAdminPanel({ user, onLogout, notifiche, setNotifiche, onImpersonate }) {
   const [tab, setTab] = useState("circoli");
   const [toastMsg, setToastMsg] = useState(null);
   function toast(msg) { setToastMsg(msg); }
@@ -3093,6 +3093,7 @@ function SuperAdminPanel({ user, onLogout, notifiche, setNotifiche }) {
                           <td style={{ fontFamily: "'Russo One',sans-serif", color: "var(--lime)" }}>{allTornei.filter(t => t.circolo_id === c.id).length}</td>
                           <td>
                             <div style={{ display: "flex", gap: 5 }}>
+                              <button className="btn btn-lime btn-sm" onClick={() => onImpersonate(c)}>🚪 Entra</button>
                               <button className={`btn btn-sm ${c.attivo ? "btn-red" : "btn-ghost"}`} onClick={() => toggleCircolo(c.id, c.attivo)}>{c.attivo ? "Disattiva" : "Attiva"}</button>
                               <button className="btn-icon" onClick={() => deleteCircolo(c.id)}>🗑️</button>
                             </div>
@@ -3388,8 +3389,19 @@ export default function App() {
     <>
       <style>{STYLES}</style>
       {!session && <LoginSupabase onLogin={u => setSession(u)} />}
-      {session && session.ruolo === "superadmin" && (
-        <SuperAdminPanel user={session} onLogout={handleLogout} notifiche={notifiche} setNotifiche={setNotifiche} />
+      {session && session.ruolo === "superadmin" && !session._impersonate && (
+        <SuperAdminPanel user={session} onLogout={handleLogout} notifiche={notifiche} setNotifiche={setNotifiche}
+          onImpersonate={(circolo) => setSession(s => ({...s, _impersonate: circolo}))}
+        />
+      )}
+      {session && session.ruolo === "superadmin" && session._impersonate && (
+        <ImpersonateShell
+          superUser={session}
+          circolo={session._impersonate}
+          onExit={() => setSession(s => ({...s, _impersonate: null}))}
+          notifiche={notifiche}
+          setNotifiche={setNotifiche}
+        />
       )}
       {session && session.ruolo === "admin_circolo" && (
         <AdminShellSupabase user={session} onLogout={handleLogout} notifiche={notifiche} setNotifiche={setNotifiche} />
