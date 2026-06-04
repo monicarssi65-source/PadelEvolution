@@ -2943,11 +2943,36 @@ const supa = {
     if (!r.ok) return { data: null, error: await r.json() };
     return { data: await r.json(), error: null };
   },
-  // Select without RLS (uses anon key directly, for superadmin impersonation)
+  // Public methods bypass RLS using anon key (for superadmin)
+  _publicHeaders() {
+    return { "Content-Type": "application/json", "apikey": this._key, "Authorization": `Bearer ${this._key}`, "Prefer": "return=representation" };
+  },
   async selectPublic(table, query = "") {
-    const headers = { "Content-Type": "application/json", "apikey": this._key, "Authorization": `Bearer ${this._key}` };
-    const r = await fetch(`${this._url}/rest/v1/${table}?${query}&order=created_at.desc`, { headers });
+    const r = await fetch(`${this._url}/rest/v1/${table}?${query}&order=created_at.desc`, { headers: this._publicHeaders() });
     if (!r.ok) return { data: [], error: null };
+    return { data: await r.json(), error: null };
+  },
+  async deletePublic(table, id) {
+    const r = await fetch(`${this._url}/rest/v1/${table}?id=eq.${id}`, {
+      method: "DELETE", headers: this._publicHeaders()
+    });
+    if (!r.ok) { try { return { error: await r.json() }; } catch { return { error: { message: r.statusText } }; } }
+    return { error: null };
+  },
+  async updatePublic(table, id, body) {
+    const r = await fetch(`${this._url}/rest/v1/${table}?id=eq.${id}`, {
+      method: "PATCH", headers: this._publicHeaders(),
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) { try { return { data: null, error: await r.json() }; } catch { return { data: null, error: { message: r.statusText } }; } }
+    return { data: await r.json(), error: null };
+  },
+  async insertPublic(table, body) {
+    const r = await fetch(`${this._url}/rest/v1/${table}`, {
+      method: "POST", headers: this._publicHeaders(),
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) { try { return { data: null, error: await r.json() }; } catch { return { data: null, error: { message: r.statusText } }; } }
     return { data: await r.json(), error: null };
   },
   async insert(table, body) {
@@ -3030,16 +3055,36 @@ function SuperAdminPanel({ user, onLogout, notifiche, setNotifiche, onImpersonat
   const [toastMsg, setToastMsg] = useState(null);
   function toast(msg) { setToastMsg(msg); }
 
-  const { data: circoli, reload: reloadCircoli, loading: loadCircoli } = useSupaTable("circoli", "");
-  const { data: allProfiles, loading: loadProfiles } = useSupaTable("profiles", "");
-  const { data: allTornei } = useSupaTable("tornei", "");
+  const [circoli, setCircoli] = useState([]);
+  const [loadCircoli, setLoadCircoli] = useState(true);
+  const [allProfiles, setAllProfiles] = useState([]);
+  const [allTornei, setAllTornei] = useState([]);
+
+  async function reloadCircoli() {
+    setLoadCircoli(true);
+    const { data } = await supa.selectPublic("circoli", "");
+    setCircoli(data || []);
+    setLoadCircoli(false);
+  }
+  async function reloadAll() {
+    const [c, p, t] = await Promise.all([
+      supa.selectPublic("circoli", ""),
+      supa.selectPublic("profiles", ""),
+      supa.selectPublic("tornei", ""),
+    ]);
+    setCircoli(c.data || []);
+    setAllProfiles(p.data || []);
+    setAllTornei(t.data || []);
+    setLoadCircoli(false);
+  }
+  useEffect(() => { reloadAll(); }, []);
 
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ nome: "", citta: "", email: "", telefono: "", piano: "base" });
 
   async function creaCircolo() {
     if (!form.nome.trim()) return;
-    const { error } = await supa.insert("circoli", { ...form, attivo: true });
+    const { error } = await supa.insertPublic("circoli", { ...form, attivo: true });
     if (error) { toast("Errore: " + (error.message || JSON.stringify(error))); return; }
     toast("Circolo creato!");
     reloadCircoli();
@@ -3048,16 +3093,23 @@ function SuperAdminPanel({ user, onLogout, notifiche, setNotifiche, onImpersonat
   }
 
   async function toggleCircolo(id, attivo) {
-    await supa.update("circoli", id, { attivo: !attivo });
+    await supa.updatePublic("circoli", id, { attivo: !attivo });
     reloadCircoli();
     toast(attivo ? "Circolo disattivato" : "Circolo attivato");
   }
 
   async function deleteCircolo(id) {
     if (!confirm("Eliminare il circolo? Tutti i dati verranno persi.")) return;
-    await supa.delete("circoli", id);
+    // Delete related data first
+    await supa.deletePublic("giocatori", "all");
+    // Use deletePublic to bypass RLS
+    const { error } = await supa.deletePublic("circoli", id);
+    if (error) {
+      toast("Errore eliminazione: " + (error.message || JSON.stringify(error)));
+      return;
+    }
     reloadCircoli();
-    toast("Circolo eliminato");
+    toast("Circolo eliminato!");
   }
 
   const pianoCls = { base: "b-gray", pro: "b-lime", enterprise: "b-gold" };
@@ -3121,7 +3173,7 @@ function SuperAdminPanel({ user, onLogout, notifiche, setNotifiche, onImpersonat
                           <td style={{ color: "var(--muted)", fontSize: 12.5 }}>{c.email || "—"}</td>
                           <td>
                             <select className="input" style={{ padding: "4px 8px", fontSize: 12, width: "auto" }} value={c.piano}
-                              onChange={async e => { await supa.update("circoli", c.id, { piano: e.target.value }); reloadCircoli(); }}>
+                              onChange={async e => { await supa.updatePublic("circoli", c.id, { piano: e.target.value }); reloadCircoli(); }}>
                               <option value="base">Base</option>
                               <option value="pro">Pro</option>
                               <option value="enterprise">Enterprise</option>
