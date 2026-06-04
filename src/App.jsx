@@ -2896,6 +2896,22 @@ const supa = {
     }
     return d;
   },
+  async refreshToken() {
+    const refresh = localStorage.getItem("supa_refresh");
+    if (!refresh) return null;
+    const r = await fetch(`${this._url}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST", headers: { "Content-Type": "application/json", "apikey": this._key },
+      body: JSON.stringify({ refresh_token: refresh })
+    });
+    const d = await r.json();
+    if (d.access_token) {
+      localStorage.setItem("supa_token", d.access_token);
+      localStorage.setItem("supa_refresh", d.refresh_token);
+      localStorage.setItem("supa_user", JSON.stringify(d.user));
+      return d;
+    }
+    return null;
+  },
   async signOut() {
     await fetch(`${this._url}/auth/v1/logout`, { method: "POST", headers: this._headers() });
     localStorage.removeItem("supa_token");
@@ -2914,16 +2930,31 @@ const supa = {
   },
 
   // DB — generic REST
+  async _refreshIfNeeded(response) {
+    if (response.status === 401) {
+      await this.refreshToken();
+      return true; // retry
+    }
+    return false;
+  },
   async select(table, query = "") {
-    const r = await fetch(`${this._url}/rest/v1/${table}?${query}&order=created_at.desc`, { headers: this._headers() });
+    let r = await fetch(`${this._url}/rest/v1/${table}?${query}&order=created_at.desc`, { headers: this._headers() });
+    if (r.status === 401) { await this.refreshToken(); r = await fetch(`${this._url}/rest/v1/${table}?${query}&order=created_at.desc`, { headers: this._headers() }); }
     if (!r.ok) return { data: null, error: await r.json() };
     return { data: await r.json(), error: null };
   },
   async insert(table, body) {
-    const r = await fetch(`${this._url}/rest/v1/${table}`, {
+    let r = await fetch(`${this._url}/rest/v1/${table}`, {
       method: "POST", headers: { ...this._headers(), "Prefer": "return=representation" },
       body: JSON.stringify(body)
     });
+    if (r.status === 401) {
+      await this.refreshToken();
+      r = await fetch(`${this._url}/rest/v1/${table}`, {
+        method: "POST", headers: { ...this._headers(), "Prefer": "return=representation" },
+        body: JSON.stringify(body)
+      });
+    }
     if (!r.ok) return { data: null, error: await r.json() };
     return { data: await r.json(), error: null };
   },
@@ -3246,14 +3277,20 @@ function LoginSupabase({ onLogin }) {
     const d = await supa.signUp(email, password, { nome });
     if (d.error) { setErrore(d.error.message); setLoading(false); return; }
 
-    // Aspetta token e crea profile
+    // Aspetta 1 secondo poi login
+    await new Promise(r => setTimeout(r, 1000));
     const login = await supa.signIn(email, password);
     if (login.access_token) {
+      // Crea profile con retry
       await supa.upsert("profiles", { id: login.user.id, nome, email, ruolo: "admin_circolo", circolo_id: circolo?.id });
+      // Aggiorna circolo con email
+      if (circolo?.id) await supa.update("circoli", circolo.id, { email });
       const { data: profiles } = await supa.select("profiles", `id=eq.${login.user.id}`);
       onLogin({ ...login.user, ...profiles?.[0], circolo });
+    } else if (login.error === "Email not confirmed") {
+      setErrore("Controlla la tua email per confermare l'account, poi accedi.");
     } else {
-      setErrore("Account creato! Verifica la tua email e poi accedi.");
+      setErrore(login.error_description || login.msg || "Account creato! Prova ad accedere.");
     }
     setLoading(false);
   }
@@ -3342,28 +3379,26 @@ export default function App() {
     { id: "n1", tipo: "sistema", titolo: "Benvenuto in Padel Evolution 2.0", testo: "Connessione a Supabase attiva. Sistema operativo.", data: "Adesso", letta: false }
   ]);
 
-  // Controlla sessione salvata al mount
+  // Controlla sessione salvata al mount — con auto refresh token
   useEffect(() => {
     const u = supa.getUser();
-    const tok = localStorage.getItem("supa_token");
-    if (u && tok) {
-      // Ricarica profilo aggiornato
-      supa.select("profiles", `id=eq.${u.id}`).then(({ data: profiles }) => {
+    const refresh = localStorage.getItem("supa_refresh");
+    if (u && refresh) {
+      (async () => {
+        // Refresh token automatico
+        await supa.refreshToken();
+        const { data: profiles } = await supa.select("profiles", `id=eq.${u.id}`);
         const profile = profiles?.[0];
         if (profile) {
           if (profile.circolo_id) {
-            supa.select("circoli", `id=eq.${profile.circolo_id}`).then(({ data: c }) => {
-              setSession({ ...u, ...profile, circolo: c?.[0] || null });
-              setChecking(false);
-            });
+            const { data: c } = await supa.select("circoli", `id=eq.${profile.circolo_id}`);
+            setSession({ ...u, ...profile, circolo: c?.[0] || null });
           } else {
             setSession({ ...u, ...profile, circolo: null });
-            setChecking(false);
           }
-        } else {
-          setChecking(false);
         }
-      });
+        setChecking(false);
+      })();
     } else {
       setChecking(false);
     }
