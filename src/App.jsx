@@ -3266,31 +3266,50 @@ function LoginSupabase({ onLogin }) {
 
   async function doRegister() {
     if (!email || !password || !nome) { setErrore("Compila tutti i campi"); return; }
+    if (password.length < 6) { setErrore("Password minimo 6 caratteri"); return; }
     setLoading(true); setErrore("");
 
-    // Crea circolo
-    const { data: c, error: ce } = await supa.insert("circoli", { nome: circoloNome || `Circolo di ${nome}`, attivo: true, piano: "base" });
-    if (ce) { setErrore("Errore creazione circolo: " + (ce.message || JSON.stringify(ce))); setLoading(false); return; }
-    const circolo = c?.[0];
+    try {
+      // STEP 1: Registra utente
+      const signup = await supa.signUp(email, password, { nome });
+      if (signup.error) {
+        setErrore(signup.error.message || "Errore registrazione");
+        setLoading(false); return;
+      }
 
-    // Registra utente
-    const d = await supa.signUp(email, password, { nome });
-    if (d.error) { setErrore(d.error.message); setLoading(false); return; }
+      // STEP 2: Login immediato per ottenere il token
+      await new Promise(r => setTimeout(r, 800));
+      const login = await supa.signIn(email, password);
+      if (!login.access_token) {
+        setErrore(login.error_description || login.msg || "Errore login dopo registrazione");
+        setLoading(false); return;
+      }
 
-    // Aspetta 1 secondo poi login
-    await new Promise(r => setTimeout(r, 1000));
-    const login = await supa.signIn(email, password);
-    if (login.access_token) {
-      // Crea profile con retry
-      await supa.upsert("profiles", { id: login.user.id, nome, email, ruolo: "admin_circolo", circolo_id: circolo?.id });
-      // Aggiorna circolo con email
-      if (circolo?.id) await supa.update("circoli", circolo.id, { email });
+      // STEP 3: Crea circolo (ora siamo autenticati)
+      const nomeC = circoloNome.trim() || `Circolo di ${nome}`;
+      const { data: cData, error: ce } = await supa.insert("circoli", {
+        nome: nomeC, attivo: true, piano: "base", email
+      });
+      if (ce) {
+        setErrore("Errore creazione circolo: " + (ce.message || JSON.stringify(ce)));
+        setLoading(false); return;
+      }
+      const circolo = cData?.[0];
+
+      // STEP 4: Crea/aggiorna profile con circolo_id
+      await supa.upsert("profiles", {
+        id: login.user.id,
+        nome, email,
+        ruolo: "admin_circolo",
+        circolo_id: circolo?.id
+      });
+
+      // STEP 5: Carica profile finale
       const { data: profiles } = await supa.select("profiles", `id=eq.${login.user.id}`);
       onLogin({ ...login.user, ...profiles?.[0], circolo });
-    } else if (login.error === "Email not confirmed") {
-      setErrore("Controlla la tua email per confermare l'account, poi accedi.");
-    } else {
-      setErrore(login.error_description || login.msg || "Account creato! Prova ad accedere.");
+
+    } catch(err) {
+      setErrore("Errore: " + (err.message || String(err)));
     }
     setLoading(false);
   }
