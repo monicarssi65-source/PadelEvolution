@@ -2943,6 +2943,13 @@ const supa = {
     if (!r.ok) return { data: null, error: await r.json() };
     return { data: await r.json(), error: null };
   },
+  // Select without RLS (uses anon key directly, for superadmin impersonation)
+  async selectPublic(table, query = "") {
+    const headers = { "Content-Type": "application/json", "apikey": this._key, "Authorization": `Bearer ${this._key}` };
+    const r = await fetch(`${this._url}/rest/v1/${table}?${query}&order=created_at.desc`, { headers });
+    if (!r.ok) return { data: [], error: null };
+    return { data: await r.json(), error: null };
+  },
   async insert(table, body) {
     let r = await fetch(`${this._url}/rest/v1/${table}`, {
       method: "POST", headers: { ...this._headers(), "Prefer": "return=representation" },
